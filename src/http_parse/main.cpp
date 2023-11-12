@@ -8,6 +8,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <errno.h>
+#include "http_parse.h"
 
 #define BUFFER_SIZE 1024
 const char * ip = "172.26.132.79";
@@ -47,10 +48,27 @@ int main(int argc, char* argv[]) {
 
         char buf[BUFFER_SIZE];
         int len = 0;
-        while ((len = recv(connfd, buf, sizeof(buf), 0)) > 0) {
-            printf("%s", buf);
-        }
+        
+        http_req_t http;
+        ret = http_parse(connfd, &http);
+        assert(ret != -1);
 
+        printf ("http: \n");
+        printf ("\tMethod: %d\n", http.method);
+        printf ("\turl: %s\n", http.url);
+        printf ("\tHost: %s\n", http.host);
+        printf ("\tConnection: %s\n", http.connection == KEEP_ALIVE ? "keep-alive" : "close");
+        printf ("\tUser-Agent: %s\n", http.user_agent);
+        printf ("\tAccept: %s\n", http.accept);
+        printf ("\tAccept-Encoding: %s\n", http.accept_encoding);
+        printf ("\tAccept-Language: %s\n", http.accept_language);
+        printf ("\tCookie: %s\n", http.cookie);
+        printf ("\tReferer: %s\n", http.referer);
+
+        printf("over");
+        send(connfd, "Hello world\n", 12, 0);
+
+        close(connfd);
     }
 
     
