@@ -18,7 +18,7 @@ const int backlog = 5;
 int main(int argc, char* argv[]) {
     
 
-    int sock = socket(PF_INET, SOCK_STREAM, 0);
+    int sock = socket(AF_INET, SOCK_STREAM, 0);
     assert(sock >= 0);
 
     struct sockaddr_in address;
@@ -33,7 +33,6 @@ int main(int argc, char* argv[]) {
     ret = listen(sock, backlog);
     assert(ret != -1);
 
-    sleep(20);
 
     struct sockaddr_in client;
     socklen_t client_addrlength = sizeof(client);
