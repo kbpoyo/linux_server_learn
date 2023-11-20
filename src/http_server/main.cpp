@@ -10,6 +10,8 @@
 #include <errno.h>
 #include "http_parse.hpp"
 
+using namespace http_req_space;
+
 #define BUFFER_SIZE 1024
 const char * ip = "172.26.132.79";
 const int port = 12345;
@@ -56,10 +58,10 @@ int main(int argc, char* argv[]) {
         int len = 0;
         
         http_req_t http;
-        assert(http.http_parse(connfd));
+        assert(http.http_read(connfd));
 
         printf ("http: \n");
-        printf ("\tMethod: %s\n", http.method);
+        printf ("\tMethod: %d\n", http.method);
         printf ("\turl: %s\n", http.url);
         printf ("\tHost: %s\n", http.host);
         printf ("\tConnection: %s\n", http.connect ? "keep-alive" : "close");
@@ -70,7 +72,15 @@ int main(int argc, char* argv[]) {
         printf ("\tCookie: %s\n", http.cookie);
         printf ("\tReferer: %s\n", http.referer);
         printf ("\tContent-Length: %d\n", http.content_length);
+        printf ("\tContent: %s\n", http.content);
 
+        http.http_rep_status_line(404, error_404_title);
+        http.http_rep_headers(strlen(error_404_form));
+        http.http_rep_content(error_404_form);
+
+        send(connfd, http.write_buffer, http.write_index, 0);
+
+        // sleep(20);
 
         close(connfd);
     }

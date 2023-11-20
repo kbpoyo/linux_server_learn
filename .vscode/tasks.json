@@ -9,7 +9,7 @@
                 "-g",
                 "${file}",
                 "-o",
-                "${fileDirname}/${fileBasenameNoExtension}"
+                "${fileDirname}/src/http_server/main"
             ],
             "options": {
                 "cwd": "${fileDirname}"
