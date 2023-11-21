@@ -2,6 +2,7 @@
 CC = g++
 TARGET = main
 OBJS = main.o
+CFLAGS = -Wall -g -pthread
 
 # 定义生成目标文件的规则
 $(TARGET): $(OBJS)

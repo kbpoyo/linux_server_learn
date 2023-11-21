@@ -2,6 +2,7 @@
 #define THREAD_POOL_H
 
 #include <list>
+#include <iostream>
 #include <cstdio>
 #include <exception>
 #include <pthread.h>
@@ -47,10 +48,9 @@ namespace thread_space {
                 m_threads.reserve(m_thread_number);
 
                 for (int i = 0; i < m_thread_number; ++i) {
-
                     std::cout << "create the " << i << "th thread\n";
                     if (pthread_create(&m_threads[i], NULL, worker, this) != 0) {
-                        throw std::exception()
+                        throw std::exception();
                     }
 
                     if (pthread_detach(m_threads[i])) {
@@ -93,7 +93,7 @@ namespace thread_space {
             //有任务可获取，加锁并从任务队列中取出任务
             m_queuelocker.lock();
             if (m_workqueue.empty()) {
-                m_queuelocker.unlock()
+                m_queuelocker.unlock();
                 continue;
             }
 

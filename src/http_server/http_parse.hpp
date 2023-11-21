@@ -13,8 +13,8 @@
 
 namespace http_req_space {
 
-#define HTTP_READ_BUFFER_SIZE 4096
-#define HTTP_WRITE_BUFFER_SIZE 4096
+#define HTTP_READ_BUFFER_SIZE 2048
+#define HTTP_WRITE_BUFFER_SIZE 1024
 #define FILE_NAME_SIZE 128
 //主状态机的两种可能状态
 typedef enum _CHECK_STATE {
@@ -74,11 +74,12 @@ public:
         memset(write_buffer, 0, HTTP_WRITE_BUFFER_SIZE);
     };
 
-    ~http_req_t(){};
+    ~http_req_t(){ unmap(); };
 
-    bool http_read(int connfd);
-    bool http_write(int connfd);
+    ssize_t http_read(int connfd);
+    ssize_t http_write(int connfd);
     bool http_write_buffer(HTTP_CODE ret);
+    bool http_is_writebuffer_empty();
     HTTP_CODE http_parse();
     void http_reset();
 
@@ -144,6 +145,8 @@ private:
     struct iovec m_iv[2]{}; 
     int m_iv_count{};
 
+    unsigned int m_bytes_have_send{};
+
 };
 
 /**
@@ -157,46 +160,29 @@ void http_req_t::unmap() {
     }
 }
 
-bool http_req_t::http_write(int connfd) {
-    int ret = 0;
-    int bytes_have_send = 0;
-    int bytes_to_send = write_index;
+ssize_t http_req_t::http_write(int connfd) {
 
-    if (bytes_to_send == 0) {
-        //无内容发送，重置连接
-        http_reset();
-        return true;
-    }
+  int bytes_to_send = 0;
+  bytes_to_send = writev(connfd, m_iv, m_iv_count);
 
-    while (1) {
-        ret = writev(connfd, m_iv, m_iv_count);
-        if (ret <= -1) {
-            if (errno ==  EAGAIN) {
-                return true;
-            }
+  if (bytes_to_send < 0) {
 
-            unmap();
-            return false;
-        }
+    unmap();
+    return bytes_to_send;
+  } 
 
-        bytes_to_send -= ret;
-        bytes_have_send += ret;
+  m_bytes_have_send += bytes_to_send;
 
-        if (bytes_to_send <= bytes_have_send) {
-            //http响应成功
-            unmap();
+  if (http_is_writebuffer_empty()) {
+    unmap();
+  }
 
-            if (this->connect) {
-                //保持连接
-                //重置状态等待下一次http请求
-                http_reset();
-                return true;
-            } else {
-                return false;
-            }
-        } 
+ return bytes_to_send;
 
-    }
+}
+
+bool http_req_t::http_is_writebuffer_empty() {
+    return m_bytes_have_send >= m_iv[0].iov_len + m_iv[1].iov_len;
 }
 
 /**
@@ -223,10 +209,14 @@ void http_req_t::http_reset() {
     read_index = 0;
     
     write_index = 0;
+    m_bytes_have_send = 0;
+
+    unmap();
     
     memset(read_buffer, '\0', HTTP_READ_BUFFER_SIZE);
     memset(write_buffer, '\0', HTTP_WRITE_BUFFER_SIZE);
     memset(m_real_file, '\0', FILE_NAME_SIZE);
+    memset(m_iv, 0, sizeof(m_iv));
 }
 
 
@@ -334,8 +324,8 @@ bool http_req_t::http_rep_status_line(int status, const char *title) {
 
 //添加响应头
 bool http_req_t::http_rep_headers(int content_len) {
-    http_rep_content_length(content_len);
-    http_rep_is_keepalive();
+    return http_rep_content_length(content_len) |
+    http_rep_is_keepalive() |
     http_rep_blank_line();
 }
 
@@ -626,7 +616,9 @@ HTTP_CODE http_req_t::http_parse() {
 
             case CHECK_STATE_CONTENT: {
                 retcode = parse_content(temp);
-                if (retcode == GET_REQUEST) {
+                if (retcode == BAD_REQUEST) {
+                    return retcode;
+                } else if (retcode == GET_REQUEST) {
                     return do_request();
                 }
 
@@ -653,28 +645,22 @@ HTTP_CODE http_req_t::http_parse() {
  * @param http 解析到该http结构中
  * @return int 解析结果
  */
-bool http_req_t::http_read(int connfd) {
+ssize_t http_req_t::http_read(int connfd) {
     if (read_index >= HTTP_READ_BUFFER_SIZE) {
-        return false;
+        return -1;
     }
 
     int bytes_read = 0;
-    while (true) {
-        bytes_read = recv(connfd, read_buffer + read_index, HTTP_READ_BUFFER_SIZE - read_index, 0);
-        if (bytes_read == -1) {
-            if (errno == EAGAIN) {
-                break;
-            }
+    bytes_read = recv(connfd, read_buffer + read_index, HTTP_READ_BUFFER_SIZE - read_index, 0);
 
-            return false;
-        } else if (bytes_read == 0) {
-            return false;
-        }
-
-        read_index += bytes_read;
+    if (bytes_read <= 0) {
+        return bytes_read;
     }
 
-    return true;
+    printf("read %d bytes from %d\n", bytes_read, connfd);
+    read_index += bytes_read;
+    
+    return bytes_read;
 }
 
 }

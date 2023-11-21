@@ -81,6 +81,8 @@ namespace http_conn_space {
 
     };
 
+    int http_conn::m_user_count = 0;
+    int http_conn::m_epollfd = 0;
     /**
      * @brief 关闭连接
      * 
@@ -88,9 +90,13 @@ namespace http_conn_space {
      */
     void http_conn::close_conn(bool real_close) {
         if (real_close && (m_sockfd != -1)) {
+            printf("sockfd %d closed\n", m_sockfd);
             removefd(m_epollfd, m_sockfd);
             m_sockfd = -1;
+
+            //TODO:加锁
             m_user_count--;
+            //TODO:解锁
         }
     }
 
@@ -102,10 +108,7 @@ namespace http_conn_space {
         m_sockfd = sockfd;
         m_address = addr;
         
-        //强制重用ip地址和端口
-        int reuse = 1;
-        setsockopt(m_sockfd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
-        addfd(m_epollfd, sockfd, true);
+       addfd(m_epollfd, sockfd, true);
 
         m_user_count++;
 
@@ -124,7 +127,7 @@ namespace http_conn_space {
             return;
         }
 
-        bool write_ret = this->m_http_req.http_write(read_ret);
+        bool write_ret = this->m_http_req.http_write_buffer(read_ret);
         if (!write_ret) {
             close_conn();
         }
@@ -138,7 +141,24 @@ namespace http_conn_space {
      * 
      */
     bool http_conn::read() {
-        return this->m_http_req.http_read(this->m_sockfd);
+        
+        while (true) {
+            int ret = m_http_req.http_read(this->m_sockfd);
+            if (ret < 0) {
+                if (errno == EAGAIN) {
+                    modfd(m_epollfd, m_sockfd, EPOLLIN);
+                    return true;
+                }
+
+                return false;
+            } else if (ret == 0) {
+                return false;
+            } else {
+                return true;
+            }
+
+        }
+
     }
 
 
@@ -149,16 +169,41 @@ namespace http_conn_space {
      * @return false 
      */
     bool http_conn::write() {
-        bool flag = this->m_http_req.http_write(m_sockfd);
-        if (flag) {
-            if (errno == EAGAIN) {  //内容未发送完毕,再次注册写事件
-                modfd(m_epollfd, m_sockfd, EPOLLOUT);
-            } else {    //内容发送完毕，连接保持，注册读事件
-                modfd(m_epollfd, m_sockfd, EPOLLIN);
-            }
-        } 
+        while (1) {
+            int ret = m_http_req.http_write(m_sockfd);;
 
-        return flag;
+
+            if (ret <= -1) {
+                if (errno ==  EAGAIN) {
+                    modfd(m_epollfd, m_sockfd, EPOLLOUT);
+                    return true;
+                }
+
+                return false;
+            } else if (ret == 0) {  //无内容写入，重置连接即可
+                m_http_req.http_reset();
+                printf("ret = 0\n");
+                return true;
+            }
+
+            printf("write %d bytes to %d\n", ret, m_sockfd);
+            if (m_http_req.http_is_writebuffer_empty()) {
+                //http响应完成
+
+                if (m_http_req.connect) {
+                    //保持连接
+                    //重置状态等待下一次http请求
+                    m_http_req.http_reset();
+                    modfd(m_epollfd, m_sockfd, EPOLLIN);
+                    return true;
+                } else {
+
+                    return false;
+                }
+            } 
+
+        }
+
     }
  
 
