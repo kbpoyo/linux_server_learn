@@ -127,6 +127,7 @@ namespace http_conn_space {
             return;
         }
 
+        // printf("read_ret = %d\n", read_ret);
         bool write_ret = this->m_http_req.http_write_buffer(read_ret);
         if (!write_ret) {
             close_conn();
@@ -170,7 +171,7 @@ namespace http_conn_space {
      */
     bool http_conn::write() {
         while (1) {
-            int ret = m_http_req.http_write(m_sockfd);;
+            int ret = m_http_req.http_write(m_sockfd);
 
 
             if (ret <= -1) {
@@ -182,7 +183,8 @@ namespace http_conn_space {
                 return false;
             } else if (ret == 0) {  //无内容写入，重置连接即可
                 m_http_req.http_reset();
-                printf("ret = 0\n");
+                // printf("ret == 0\n");
+                modfd(m_epollfd, m_sockfd, EPOLLIN);
                 return true;
             }
 

@@ -163,11 +163,13 @@ void http_req_t::unmap() {
 ssize_t http_req_t::http_write(int connfd) {
 
   int bytes_to_send = 0;
+  printf("writev start, m_iv[0].len = %lu, m_iv[1].len = %lu m_iv_count = %d\n", m_iv[0].iov_len, m_iv[1].iov_len, m_iv_count);
   bytes_to_send = writev(connfd, m_iv, m_iv_count);
+  printf("bytes_to_send = %d writev end\n", bytes_to_send);
+
 
   if (bytes_to_send < 0) {
 
-    unmap();
     return bytes_to_send;
   } 
 
@@ -266,26 +268,34 @@ bool http_req_t::http_write_buffer(HTTP_CODE ret) {
             http_rep_status_line(500, error_500_title);
             http_rep_headers(strlen(error_500_form));
             
-            return http_rep_content(error_500_form);
+            if (!http_rep_content(error_500_form)) {
+                return false;
+            }
         } break;
 
         case BAD_REQUEST: {
             http_rep_status_line(400, error_400_title);
             http_rep_headers(strlen(error_400_form));
-            return http_rep_content(error_400_form);
+            if (!http_rep_content(error_400_form)) {
+                return false;
+            }
         } break;
 
         case FORBIDDEN_REQUEST: {
             http_rep_status_line(403, error_403_title);
             http_rep_headers(strlen(error_403_form));
-            return http_rep_content(error_403_form);
+            if (!http_rep_content(error_403_form)) {
+                return false;
+            }
 
         } break;
 
         case NO_RESOURCE: {
             http_rep_status_line(404, error_404_title);
             http_rep_headers(strlen(error_404_form));
-            return http_rep_content(error_404_form);
+            if (!http_rep_content(error_404_form)) {
+                return false;
+            }
         } break;
 
         case FILE_REQUEST: {
@@ -302,7 +312,9 @@ bool http_req_t::http_write_buffer(HTTP_CODE ret) {
             } else {
                 const char *ok_string = "<html><body></body></html>";
                 http_rep_headers((strlen(ok_string)));
-                return http_rep_content(ok_string);
+                if (!http_rep_content(ok_string)) {
+                    return false;
+                }
             }
         } break;
 
@@ -324,8 +336,8 @@ bool http_req_t::http_rep_status_line(int status, const char *title) {
 
 //添加响应头
 bool http_req_t::http_rep_headers(int content_len) {
-    return http_rep_content_length(content_len) |
-    http_rep_is_keepalive() |
+    return http_rep_content_length(content_len) &&
+    http_rep_is_keepalive() &&
     http_rep_blank_line();
 }
 
