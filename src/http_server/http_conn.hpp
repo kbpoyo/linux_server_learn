@@ -1,60 +1,13 @@
 #ifndef HTTP_CONN_HPP
 #define HTTP_CONN_HPP
 
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <unistd.h>
-#include <sys/stat.h>
-#include <sys/fcntl.h>
-#include <sys/epoll.h>
-
+#include "mutil_io.h"
 #include "http_parse.hpp"
 
 
 namespace http_conn_space {
-
-    int setnonblocking(int fd) {
-        int old_opt = fcntl(fd, F_GETFL);
-        int new_opt = old_opt | O_NONBLOCK;
-        fcntl(fd, F_SETFL, new_opt);
-
-        return old_opt;
-    }
-
-    void addfd(int epollfd, int fd, bool one_shot) {
-        epoll_event event;
-        event.data.fd = fd;
-        event.events = EPOLLIN | EPOLLRDHUP;
-
-        if (one_shot) {
-            event.events |= EPOLLONESHOT;
-        }
-
-        epoll_ctl(epollfd, EPOLL_CTL_ADD, fd, &event);
-        setnonblocking(fd);
-    }
-
-    void removefd(int epollfd, int fd) {
-        epoll_ctl(epollfd, EPOLL_CTL_DEL, fd, NULL);
-        close(fd);
-    }
-
-    void modfd(int epollfd, int fd, int ev) {
-        epoll_event event;
-        event.data.fd = fd;
-        event.events = ev | EPOLLONESHOT | EPOLLRDHUP;
-        epoll_ctl(epollfd, EPOLL_CTL_MOD, fd, &event);
-
-    }
-
-
-
- 
-
     using namespace http_req_space;
 
-  
-    
     class http_conn {
 
     public:
@@ -74,15 +27,14 @@ namespace http_conn_space {
     private:
         int m_sockfd{};   //连接的socket
         sockaddr_in m_address{};  //连接的socket地址
-
         http_req_t m_http_req{};    //维护当前连接的状态
 
 
 
     };
 
-    int http_conn::m_user_count = 0;
-    int http_conn::m_epollfd = 0;
+    int http_conn::m_user_count = -1;
+    int http_conn::m_epollfd = -1;
     /**
      * @brief 关闭连接
      * 
@@ -108,7 +60,11 @@ namespace http_conn_space {
         m_sockfd = sockfd;
         m_address = addr;
         
-       addfd(m_epollfd, sockfd, true);
+        int bufsize = 1024 * 1024; // 1MB
+        setsockopt(sockfd, SOL_SOCKET, SO_SNDBUF, &bufsize, sizeof(bufsize));
+
+
+        addfd(m_epollfd, sockfd, true);
 
         m_user_count++;
 

@@ -11,6 +11,9 @@
 #include <unistd.h>
 #include <sys/fcntl.h>
 
+
+
+
 namespace http_req_space {
 
 #define HTTP_READ_BUFFER_SIZE 2048
@@ -52,6 +55,30 @@ typedef enum _HTTP_METHOD {
 }HTTP_METHOD;
 
 
+// 定义一个结构体，存储文件扩展名和对应的content-type
+struct file_type {
+    const char *ext;
+    const char *type;
+};
+
+// 定义一个数组，存储常见的文件类型
+struct file_type file_types[] = {
+    {".html", "text/html"},
+    {".css", "text/css"},
+    {".js", "application/javascript"},
+    {".json", "application/json"},
+    {".xml", "application/xml"},
+    {".jpg", "image/jpeg"},
+    {".png", "image/png"},
+    {".gif", "image/gif"},
+    {".pdf", "application/pdf"},
+    {".txt", "text/plain"},
+    {".mp4", "video/mp4"},
+    {".webm", "video/webm"},
+    {".bin", "application/octet-stream"},
+    {NULL, NULL} // 用NULL表示数组的结束
+};
+
 //定义http响应的一些状态信息
 const char *ok_200_title = "OK";
 const char *error_400_title = "Bad Request";
@@ -81,7 +108,11 @@ public:
     bool http_write_buffer(HTTP_CODE ret);
     bool http_is_writebuffer_empty();
     HTTP_CODE http_parse();
+
     void http_reset();
+
+
+private:
 
     bool http_rep_status_line(int status, const char *title);
     bool http_rep_headers(int content_len);
@@ -89,10 +120,8 @@ public:
     bool http_rep_is_keepalive();
     bool http_rep_blank_line();
     bool http_rep_content(const char *content);
-
-
-private:
-
+    bool http_rep_content_type();
+    
     LINE_STATUS parse_line();
     HTTP_CODE parse_requestline(char *temp);
     HTTP_CODE parse_headers(char *temp);
@@ -145,9 +174,11 @@ private:
     struct iovec m_iv[2]{}; 
     int m_iv_count{};
 
-    unsigned int m_bytes_have_send{};
+    ssize_t m_bytes_have_send{};
 
 };
+
+
 
 /**
  * @brief 释放映射的文件内存
@@ -162,10 +193,11 @@ void http_req_t::unmap() {
 
 ssize_t http_req_t::http_write(int connfd) {
 
-  int bytes_to_send = 0;
+  ssize_t bytes_to_send = 0;
   printf("writev start, m_iv[0].len = %lu, m_iv[1].len = %lu m_iv_count = %d\n", m_iv[0].iov_len, m_iv[1].iov_len, m_iv_count);
   bytes_to_send = writev(connfd, m_iv, m_iv_count);
-  printf("bytes_to_send = %d writev end\n", bytes_to_send);
+  printf("bytes_to_send = %ld writev end\n", bytes_to_send);
+ 
 
 
   if (bytes_to_send < 0) {
@@ -175,16 +207,36 @@ ssize_t http_req_t::http_write(int connfd) {
 
   m_bytes_have_send += bytes_to_send;
 
+  printf("m_bytes_have_send = %ld\n", m_bytes_have_send);
+
   if (http_is_writebuffer_empty()) {
     unmap();
   }
 
- return bytes_to_send;
+ssize_t ret_send = bytes_to_send;
+
+for (int i = 0; i < m_iv_count; i++) {
+  if (m_iv[i].iov_len > 0) {
+    if (bytes_to_send > m_iv[i].iov_len) {
+        bytes_to_send -= m_iv[i].iov_len;
+        m_iv[i].iov_len = 0;
+        m_iv[i].iov_base = NULL;
+    } else {
+        m_iv[i].iov_len -= bytes_to_send;
+        char *temp = (char*)m_iv[i].iov_base;
+        temp += bytes_to_send;
+        m_iv[i].iov_base = temp;
+    }
+  }
+
+}
+
+ return ret_send;
 
 }
 
 bool http_req_t::http_is_writebuffer_empty() {
-    return m_bytes_have_send >= m_iv[0].iov_len + m_iv[1].iov_len;
+    return m_iv[0].iov_len + m_iv[1].iov_len <= 0;
 }
 
 /**
@@ -302,6 +354,7 @@ bool http_req_t::http_write_buffer(HTTP_CODE ret) {
             http_rep_status_line(200, ok_200_title);
             //将http响应头和文件内容放入集中写的目标内存中
             if (m_file_stat.st_size != 0) {
+                http_rep_content_type();
                 http_rep_headers(m_file_stat.st_size);
                 m_iv[0].iov_base = write_buffer;
                 m_iv[0].iov_len = write_index;
@@ -356,6 +409,35 @@ bool http_req_t::http_rep_blank_line() {
 
 bool http_req_t::http_rep_content(const char *content) {
     return add_response("%s", content);
+}
+/**
+ * @brief 根据文件名写入content-type字段
+ * 
+ * @param filename 
+ * @return true 
+ * @return false 
+ */
+bool http_req_t::http_rep_content_type() {
+    const char *filename = m_real_file;
+      // 检查参数是否有效
+    if (filename == NULL) {
+        return false;
+    }
+    // 获取文件名的最后一个点的位置
+    const char *dot = strrchr(filename, '.');
+ 
+    // 遍历文件类型数组，查找是否有匹配的扩展名
+    for (int i = 0; file_types[i].ext != NULL; i++) {
+        // 如果扩展名相同，将对应的content-type写入缓冲区，并返回成功
+        if (strcmp(dot, file_types[i].ext) == 0) {
+            add_response("Content-Type: %s\r\n", file_types[i].type);
+            return true;
+        }
+    }
+
+    add_response("Content-Type: %s\r\n", "application/octet-stream");
+    // 如果没有找到匹配的扩展名，表示文件类型未知，
+    return true;
 }
 
 
